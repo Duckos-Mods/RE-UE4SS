@@ -9,7 +9,7 @@
 
 namespace RC
 {
-    struct ModMetadata
+    struct CppModMetadata
     {
         const StringType ModName{};
         const StringType ModVersion{};
