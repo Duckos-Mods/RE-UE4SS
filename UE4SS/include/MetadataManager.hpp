@@ -19,8 +19,10 @@ namespace RC
             auto verify_mnti(std::vector<std::unique_ptr<Mod>>& mods) -> void;
 
         private:
+#pragma warning(disable : 4251)
             std::map<std::wstring, unsigned int> m_mod_name_to_index{}; // We have this map so we can quickly find the index of a mod in the vector with out calling find_mod_by_name this isnt used for anything else
-            // Theoretically we could replace the find_mod_by_name_internal function with this and it would be much faster but I dont want to break anything
+#pragma warning(default : 4251)
+          // Theoretically we could replace the find_mod_by_name_internal function with this and it would be much faster but I dont want to break anything
             // I might toy around with that later though and see if it works out better than the current system 
             // For now this is just used for managing dependencies
 

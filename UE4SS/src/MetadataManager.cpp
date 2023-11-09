@@ -66,6 +66,7 @@ namespace RC
 		m_mod_name_to_index[modTwo] = startIndex;
 	}
 
+	// This functions name is missleading it only operates on 1 modpleas
     auto MetadataManager::manage_dependencies(std::unique_ptr<Mod>& mod, std::vector<std::unique_ptr<Mod>>& mods) -> bool
     {
         // Check for dependencies
@@ -117,6 +118,9 @@ namespace RC
 		m_mod_name_to_index[mod_name] = index;
 	}
 
+	// This function is used to correct the mnti map if it is corrupted and or wrong
+	// If this is called after the sorting then its most likely that its already correct
+	// And if it isnt correct then its most likely that its already to late and there is a bug in the sorting
 	auto MetadataManager::brute_force_correct_mnti(std::vector<std::unique_ptr<Mod>>& mods)
 		->void
 	{
