@@ -9,6 +9,7 @@
 
 #include <Common.hpp>
 #include <File/File.hpp>
+#include <Mod/ModMetadata.hpp>
 
 namespace RC
 {
@@ -28,6 +29,8 @@ namespace RC
 #pragma warning(disable : 4251)
         std::wstring m_mod_name;
         std::wstring m_mod_path;
+
+        ModMetadata m_metadata; // We will init this in the constructor
 #pragma warning(default : 4251)
 
       protected:
@@ -35,6 +38,9 @@ namespace RC
         // This is true by default and is only false if the state of the mod won't allow for a successful installation
         bool m_installable{true};
         bool m_installed{false};
+        bool m_is_startable{false};
+        bool m_is_force_enabled{false};
+
         mutable bool m_is_started{false};
 
       public:
@@ -59,6 +65,14 @@ namespace RC
         auto set_installed(bool) -> void;
         auto is_installed() const -> bool;
         auto is_started() const -> bool;
+        auto get_metadata() -> ModMetadata&;
+        auto is_startable() const -> bool;
+        auto set_startable(bool) -> void;
+        auto init_metadata() -> void;
+        auto is_force_enabled() const -> bool;
+        auto set_force_enabled(bool) -> void;
+
+
 
       public:
         // Main update from the program

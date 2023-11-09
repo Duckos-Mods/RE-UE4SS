@@ -93,4 +93,44 @@ namespace RC
     auto Mod::update_async() -> void
     {
     }
+
+    auto Mod::init_metadata() -> void
+    {
+        auto metadata_path = std::format(L"{}\\metadata.json", m_mod_path);
+        
+
+        if (std::filesystem::exists(metadata_path))
+		{
+            m_metadata.process_metadata_file(metadata_path);
+		}
+        else
+        {
+            Output::send(STR("No metadata found in {}! It is good practice to include metadata from version 2.6 of UE4SS and above"), m_mod_name);
+        }
+    }
+
+    auto Mod::is_startable() const->bool
+    {
+        return m_is_startable;
+    }
+
+    auto Mod::set_startable(bool val) -> void
+    {
+        m_is_startable = val;
+    }
+
+    auto Mod::get_metadata() -> ModMetadata&
+    {
+        return m_metadata; 
+    }
+
+    auto Mod::is_force_enabled() const -> bool
+    {
+        return m_is_force_enabled;
+    }
+
+    auto Mod::set_force_enabled(bool val)->void
+    {
+        m_is_force_enabled = val;
+    }
 } // namespace RC
