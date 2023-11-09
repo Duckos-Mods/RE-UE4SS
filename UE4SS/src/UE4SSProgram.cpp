@@ -976,13 +976,14 @@ namespace RC
 
                 // Create the mod but don't install it yet
                 if (std::filesystem::exists(sub_directory.path() / "scripts"))
-                    m_mods.emplace_back(std::make_unique<LuaMod>(*this, mod_name, sub_directory.path().wstring()));
+                    m_mods.emplace_back(std::make_unique<LuaMod>(*this, sub_directory.path().stem().wstring(), sub_directory.path().wstring()));
                 if (std::filesystem::exists(sub_directory.path() / "dlls"))
-                    m_mods.emplace_back(std::make_unique<CppMod>(*this, mod_name, sub_directory.path().wstring()));
+                    m_mods.emplace_back(std::make_unique<CppMod>(*this, sub_directory.path().stem().wstring(), sub_directory.path().wstring()));
                 if (std::filesystem::exists(sub_directory.path() / "scripts") || std::filesystem::exists(sub_directory.path() / "dlls"))
                 {
                     m_metadata_manager.add_to_mnti(mod_name, current_mod_index);
                     current_mod_index++;
+                    m_mods.back()->init_metadata();
                 }
             }
         }
@@ -1002,6 +1003,7 @@ namespace RC
         }
 
         m_metadata_manager.verify_mnti(m_mods); // Make sure that all mods have the correct indexes in the mod name to index map after being sorted 
+        // If this fails then there is a circular dependency or something broke 
 
         //TODO: abstract this into its own function for better readability
 
@@ -1204,6 +1206,7 @@ namespace RC
                 }
             }
         }
+        return {};
     }
 
     auto UE4SSProgram::start_lua_mods() -> void
