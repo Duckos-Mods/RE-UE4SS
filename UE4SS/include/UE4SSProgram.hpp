@@ -20,6 +20,7 @@
 #include <SettingsManager.hpp>
 #include <Unreal/TArray.hpp>
 #include <Unreal/UnrealVersion.hpp>
+#include <MetadataManager.hpp>
 
 // Used to set up ImGui context and allocator in DLL mods
 #define UE4SS_ENABLE_IMGUI()                                                                                                                                   \
@@ -83,6 +84,9 @@ namespace RC
 
       private:
         CrashDumper m_crash_dumper{};
+
+      private:
+        MetadataManager m_metadata_manager{};
 
       private:
         std::filesystem::path m_game_path_and_exe_name;
