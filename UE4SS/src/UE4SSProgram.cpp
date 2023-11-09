@@ -948,6 +948,7 @@ namespace RC
             set_error("Mods directory doesn't exist, please create it: <%S>", m_mods_directory.c_str());
         }
 
+        unsigned int current_mod_index{0};
         for (const auto& sub_directory : std::filesystem::directory_iterator(m_mods_directory))
         {
             std::error_code ec;
@@ -971,13 +972,133 @@ namespace RC
             }
             else
             {
+                auto mod_name = sub_directory.path().stem().wstring();
+
                 // Create the mod but don't install it yet
                 if (std::filesystem::exists(sub_directory.path() / "scripts"))
-                    m_mods.emplace_back(std::make_unique<LuaMod>(*this, sub_directory.path().stem().wstring(), sub_directory.path().wstring()));
+                    m_mods.emplace_back(std::make_unique<LuaMod>(*this, mod_name, sub_directory.path().wstring()));
                 if (std::filesystem::exists(sub_directory.path() / "dlls"))
-                    m_mods.emplace_back(std::make_unique<CppMod>(*this, sub_directory.path().stem().wstring(), sub_directory.path().wstring()));
+                    m_mods.emplace_back(std::make_unique<CppMod>(*this, mod_name, sub_directory.path().wstring()));
+                if (std::filesystem::exists(sub_directory.path() / "scripts") || std::filesystem::exists(sub_directory.path() / "dlls"))
+                {
+                    m_metadata_manager.add_to_mnti(mod_name, current_mod_index);
+                    current_mod_index++;
+                }
             }
         }
+
+        m_metadata_manager.verify_mnti(m_mods); // Make sure that all mods have the correct indexes in the mod name to index map
+
+        // Manage all dependencies for all mods
+        // This is done in a while loop because some mods may have dependencies that have dependencies themselves
+        bool go_over_dependencies{true};
+        while (go_over_dependencies)
+        {
+            go_over_dependencies = false;
+            for (auto& mod : m_mods)
+            {
+                go_over_dependencies |= m_metadata_manager.manage_dependencies(mod, m_mods);
+            }
+        }
+
+        m_metadata_manager.verify_mnti(m_mods); // Make sure that all mods have the correct indexes in the mod name to index map after being sorted 
+
+        //TODO: abstract this into its own function for better readability
+
+        // Part #1: Start all mods that are enabled in mods.txt.
+        Output::send(STR("Priming mods (from mods.txt load order)...\n"));
+
+        std::filesystem::path mods_directory = UE4SSProgram::get_program().get_mods_directory();
+        std::wstring enabled_mods_file{mods_directory / "mods.txt"};
+        if (!std::filesystem::exists(enabled_mods_file))
+        {
+            Output::send(STR("No mods.txt file found...\n"));
+        }
+        else
+        {
+            // 'mods.txt' exists, lets parse it
+            std::wifstream mods_stream{enabled_mods_file};
+
+            std::wstring current_line;
+            while (std::getline(mods_stream, current_line))
+            {
+                // Don't parse any lines with ';'
+                if (current_line.find(L";") != current_line.npos)
+                {
+                    continue;
+                }
+
+                // Don't parse if the line is impossibly short (empty lines for example)
+                if (current_line.size() <= 4)
+                {
+                    continue;
+                }
+
+                // Remove all spaces
+                auto end = std::remove(current_line.begin(), current_line.end(), L' ');
+                current_line.erase(end, current_line.end());
+
+                // Parse the line into something that can be converted into proper data
+                std::wstring mod_name = explode_by_occurrence(current_line, L':', 1);
+                std::wstring mod_enabled = explode_by_occurrence(current_line, L':', ExplodeType::FromEnd);
+
+                auto mod = m_mods[m_metadata_manager.get_mod_index(mod_name)].get();
+                if (!mod_enabled.empty() && mod_enabled[0] == L'1')
+                {
+                    Output::send(STR("Priming Mod To Load {}\n"), mod->get_name().data());
+                    mod->set_startable(true);
+                }
+                else if (m_mods[m_metadata_manager.get_mod_index(mod_name)]->is_force_enabled())
+                {
+					Output::send<LogLevel::Warning>(STR("Priming Mod To Load {} (Forced)\n"), mod->get_name().data());
+					mod->set_startable(true);
+                }
+                else
+                {
+                    Output::send(STR("Mod '{}' disabled in mods.txt.\n"), mod_name);
+                }
+            }
+        }
+    
+        // Part #2: Start all mods that have enabled.txt present in the mod directory.
+        Output::send(STR("Starting mods (from enabled.txt, no defined load order)...\n"));
+
+        for (const auto& mod_directory : std::filesystem::directory_iterator(mods_directory))
+        {
+            std::error_code ec{};
+
+            if (!mod_directory.is_directory(ec))
+            {
+                continue;
+            }
+            if (ec.value() != 0)
+            {
+                Output::send<LogLevel::Error>(STR("is_directory ran into error {}"), ec.value());
+                continue;
+            }
+
+            if (!std::filesystem::exists(mod_directory.path() / "enabled.txt", ec))
+            {
+                continue;
+            }
+            if (ec.value() != 0)
+            {
+                Output::send<LogLevel::Error>(STR("exists ran into error {}"), ec.value());
+                continue;
+            }
+            auto wstring_name = mod_directory.path().stem().wstring();
+            auto mod = m_mods[m_metadata_manager.get_mod_index(wstring_name)].get();
+            
+            if (!mod)
+            {
+                Output::send<LogLevel::Warning>(STR("Found a mod with enabled.txt but mod has not been installed properly.\n"));
+                continue;
+            }
+
+            Output::send(STR("Mod '{}' has enabled.txt, priming mod.\n"), mod->get_name().data());
+            mod->set_startable(true);
+        }
+
     }
 
     template <typename ModType>
@@ -1063,114 +1184,31 @@ namespace RC
     }
 
     template <typename ModType>
-    auto start_mods() -> std::string
+    auto start_mods(std::vector<std::unique_ptr<Mod>>& mods) -> std::string
     {
-        // Part #1: Start all mods that are enabled in mods.txt.
-        Output::send(STR("Starting mods (from mods.txt load order)...\n"));
-
-        std::filesystem::path mods_directory = UE4SSProgram::get_program().get_mods_directory();
-        std::wstring enabled_mods_file{mods_directory / "mods.txt"};
-        if (!std::filesystem::exists(enabled_mods_file))
+        for (auto& mod : mods)
         {
-            Output::send(STR("No mods.txt file found...\n"));
-        }
-        else
-        {
-            // 'mods.txt' exists, lets parse it
-            std::wifstream mods_stream{enabled_mods_file};
+            if (!dynamic_cast<ModType*>(mod.get()))
+			{
+				continue;
+			}
 
-            std::wstring current_line;
-            while (std::getline(mods_stream, current_line))
+            if (!mod->is_startable()) 
+                continue;
+
+            if (mod->is_startable())
             {
-                // Don't parse any lines with ';'
-                if (current_line.find(L";") != current_line.npos)
+                if (!mod->is_started())
                 {
-                    continue;
-                }
-
-                // Don't parse if the line is impossibly short (empty lines for example)
-                if (current_line.size() <= 4)
-                {
-                    continue;
-                }
-
-                // Remove all spaces
-                auto end = std::remove(current_line.begin(), current_line.end(), L' ');
-                current_line.erase(end, current_line.end());
-
-                // Parse the line into something that can be converted into proper data
-                std::wstring mod_name = explode_by_occurrence(current_line, L':', 1);
-                std::wstring mod_enabled = explode_by_occurrence(current_line, L':', ExplodeType::FromEnd);
-
-                auto mod = UE4SSProgram::find_mod_by_name<ModType>(mod_name, UE4SSProgram::IsInstalled::Yes);
-                if (!mod || !dynamic_cast<ModType*>(mod))
-                {
-                    continue;
-                }
-
-                if (!mod_enabled.empty() && mod_enabled[0] == L'1')
-                {
-                    Output::send(STR("Starting {} mod '{}'\n"), std::is_same_v<ModType, LuaMod> ? STR("Lua") : STR("C++"), mod->get_name().data());
                     mod->start_mod();
                 }
-                else
-                {
-                    Output::send(STR("Mod '{}' disabled in mods.txt.\n"), mod_name);
-                }
             }
         }
-
-        // Part #2: Start all mods that have enabled.txt present in the mod directory.
-        Output::send(STR("Starting mods (from enabled.txt, no defined load order)...\n"));
-
-        for (const auto& mod_directory : std::filesystem::directory_iterator(mods_directory))
-        {
-            std::error_code ec{};
-
-            if (!mod_directory.is_directory(ec))
-            {
-                continue;
-            }
-            if (ec.value() != 0)
-            {
-                return std::format("is_directory ran into error {}", ec.value());
-            }
-
-            if (!std::filesystem::exists(mod_directory.path() / "enabled.txt", ec))
-            {
-                continue;
-            }
-            if (ec.value() != 0)
-            {
-                return std::format("exists ran into error {}", ec.value());
-            }
-
-            auto mod = UE4SSProgram::find_mod_by_name<ModType>(mod_directory.path().stem().c_str(), UE4SSProgram::IsInstalled::Yes);
-            if (!dynamic_cast<ModType*>(mod))
-            {
-                continue;
-            }
-            if (!mod)
-            {
-                Output::send<LogLevel::Warning>(STR("Found a mod with enabled.txt but mod has not been installed properly.\n"));
-                continue;
-            }
-
-            if (mod->is_started())
-            {
-                continue;
-            }
-
-            Output::send(STR("Mod '{}' has enabled.txt, starting mod.\n"), mod->get_name().data());
-            mod->start_mod();
-        }
-
-        return {};
     }
 
     auto UE4SSProgram::start_lua_mods() -> void
     {
-        auto error_message = start_mods<LuaMod>();
+        auto error_message = start_mods<LuaMod>(m_mods);
         if (!error_message.empty())
         {
             set_error(error_message.c_str());
@@ -1179,7 +1217,7 @@ namespace RC
 
     auto UE4SSProgram::start_cpp_mods() -> void
     {
-        auto error_message = start_mods<CppMod>();
+        auto error_message = start_mods<CppMod>(m_mods);
         if (!error_message.empty())
         {
             set_error(error_message.c_str());
